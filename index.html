@@ -34,6 +34,32 @@
   --font-display:&#39;Space Grotesk&#39;,&#39;Syne&#39;,&#39;Montserrat&#39;,&#39;DejaVu Sans&#39;,sans-serif; --font-body:&#39;Inter&#39;,system-ui,&#39;Segoe UI&#39;,&#39;DejaVu Sans&#39;,sans-serif; --font-mono:&#39;JetBrains Mono&#39;,&#39;DejaVu Sans Mono&#39;,monospace;
 }
 </style>
+<style>
+  .product-grid,
+  .card,
+  .pcard {
+    content-visibility: auto;
+    contain: layout paint style;
+  }
+
+  .product-grid {
+    contain-intrinsic-size: 1200px 1500px;
+  }
+
+  .pcard,
+  .card {
+    contain-intrinsic-size: 380px 540px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
 <link rel="stylesheet" href="assets/style.css">
 <script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://pageturn.pl/#org", "name": "PageTurn", "url": "https://pageturn.pl/", "email": "kontakt@pageturn.pl", "slogan": "Sprzedawaj produkty cyfrowe w Polsce. Bez abonamentu.", "sameAs": ["https://tiktok.com/@pageturn.pl", "https://instagram.com/pageturn.pl", "https://youtube.com/@pageturnpl"]}, {"@type": "WebSite", "@id": "https://pageturn.pl/#website", "url": "https://pageturn.pl/", "name": "PageTurn", "inLanguage": "pl-PL", "publisher": {"@id": "https://pageturn.pl/#org"}, "potentialAction": {"@type": "SearchAction", "target": {"@type": "EntryPoint", "urlTemplate": "https://pageturn.pl/katalog.html?q={search_term_string}"}, "query-input": "required name=search_term_string"}}, {"@type": "ItemList", "name": "Katalog e-booków", "itemListElement": [{"@type": "ListItem", "position": 1, "url": "https://pageturn.pl/produkty/500-zl-w-weekend-z-telefonem.html", "name": "500 zł w weekend z telefonem"}, {"@type": "ListItem", "position": 2, "url": "https://pageturn.pl/produkty/chatgpt-50-sposobow-na-kase.html", "name": "ChatGPT — 50 sposobów na kasę"}, {"@type": "ListItem", "position": 3, "url": "https://pageturn.pl/produkty/kopiuj-wklej-200-postow.html", "name": "Kopiuj-Wklej: 200 gotowych postów"}, {"@type": "ListItem", "position": 4, "url": "https://pageturn.pl/produkty/psychologia-cen.html", "name": "Psychologia cen dla każdego"}, {"@type": "ListItem", "position": 5, "url": "https://pageturn.pl/produkty/flipping-olx-vinted.html", "name": "Flipping: kup tanio, sprzedaj drożej"}, {"@type": "ListItem", "position": 6, "url": "https://pageturn.pl/produkty/dropshipping-pl-krok-po-kroku.html", "name": "Dropshipping PL krok po kroku"}]}, {"@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Ile kosztuje rozpoczęcie sprzedaży?", "acceptedAnswer": {"@type": "Answer", "text": "Nic. Nie płacisz za rejestrację ani za przechowywanie plików. Od udanej transakcji pobieramy 3% prowizji — jeśli nic się nie sprzeda, nie płacisz nic."}}, {"@type": "Question", "name": "Kiedy dostanę pieniądze?", "acceptedAnswer": {"@type": "Answer", "text": "Wypłaty idą w dni robocze, raz na dobę. Środki są widoczne w panelu zaraz po zakupie, a na Twoim rachunku w ciągu 24 godzin."}}, {"@type": "Question", "name": "W jakim formacie przygotować e-booka?", "acceptedAnswer": {"@type": "Answer", "text": "PDF jest najbezpieczniejszy i otwiera się wszędzie. Obsługujemy też ePub, ZIP z materiałami dodatkowymi i link do prywatnego folderu z plikami."}}, {"@type": "Question", "name": "Czy PageTurn rozlicza moje podatki?", "acceptedAnswer": {"@type": "Answer", "text": "Nie. Sprzedaż własnych produktów cyfrowych to Twój przychód i Twoja sprawa rozliczeniowa. Wystawiamy zbiorcze raporty sprzedaży w CSV i PDF, które ułatwiają księgowość, ale nie zastępują księgowej ani doradcy podatkowego."}}, {"@type": "Question", "name": "Czy klient dostaje fakturę?", "acceptedAnswer": {"@type": "Answer", "text": "Tak, jeśli podasz dane do faktury w ustawieniach konta. Możesz też rozliczać się w ramach działalności nierejestrowanej i wysyłać samo potwierdzenie zakupu."}}, {"@type": "Question", "name": "Co, jeśli klient zażąda zwrotu?", "acceptedAnswer": {"@type": "Answer", "text": "Ustawiasz własną politykę w zakresie wymaganym prawem (14 dni na odstąpienie od umowy zawartej online, z wyjątkami dla treści cyfrowych). Zwrot wykonujesz jednym kliknięciem, a prowizja wraca do Ciebie."}}, {"@type": "Question", "name": "Czy mogę sprzedawać treści stworzone z AI?", "acceptedAnswer": {"@type": "Answer", "text": "Tak, jeśli masz do nich prawa i nie naruszasz cudzych znaków towarowych. W regulaminie wymagamy oznaczenia materiałów wygenerowanych — kupujący wie, co dostaje, a Ty masz mniej reklamacji."}}, {"@type": "Question", "name": "Ile trwa przenosiny z innej platformy?", "acceptedAnswer": {"@type": "Answer", "text": "Zwykle jeden wieczór. Wgrywasz produkt po produkcie albo plik CSV; ceny, opisy i pliki wejdą automatycznie, a stare linki przekierujemy."}}]}]}</script>
 </head>
@@ -83,7 +109,7 @@
     </div>
     <div class="hero-media">
       <figure class="shot" style="margin:0">
-        <img src="assets/img/banner_site.webp" alt="Baner PageTurn: wgraj PDF i zarabiaj co tydzień" width="1920" height="640" loading="eager" fetchpriority="high">
+        <img src="assets/img/banner_site.webp" alt="Baner PageTurn: wgraj PDF i zarabiaj co tydzień" width="1920" height="640" loading="eager" fetchpriority="high" decoding="async">
       </figure>
       <div class="float" aria-hidden="true">
         <div>
