@@ -104,6 +104,13 @@ pixel-aligned with clips under every zoom/scroll and multiple lanes can be open 
 node src/tests/automation.test.js   # 48 assertions: interpolation, validator, serializer, facade, lane controller, headless editor, scheduler, compat, undo/redo
 ```
 
+From the repository root these also work:
+
+```bash
+node tests/automation.test.js   # shim forwarding to the suite above
+npm test                        # same thing
+```
+
 The suite also runs in GitHub Actions on every push (`.github/workflows/main.yml`):
 syntax check of all modules, a browser load-order smoke test, and the full assertion suite.
 
