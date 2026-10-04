@@ -70,7 +70,9 @@ absolute-studio/
     │   ├── automation-editor.js          # add/drag/delete points, axis lock, snap
     │   └── automation-styles.css         # lane theme (CSS custom properties)
     ├── audio/
-    │   └── automation-scheduler.js   # AudioParam curve scheduling (live + offline)
+    │   └── automation-scheduler.js   # AudioParam curves + transport orchestration
+    │                                 # (scheduleAll / rescheduleFromPlayhead / cancelAll;
+    │                                 #  timeline→context time conversion lives here)
     └── tests/
         └── automation.test.js        # 21 assertions, plain Node
 ```
@@ -99,7 +101,7 @@ pixel-aligned with clips under every zoom/scroll and multiple lanes can be open 
 ## Tests
 
 ```bash
-node src/tests/automation.test.js   # 38 assertions: interpolation, validator, serializer, facade, lane controller, headless editor, undo/redo
+node src/tests/automation.test.js   # 43 assertions: interpolation, validator, serializer, facade, lane controller, headless editor, scheduler, undo/redo
 ```
 
 ## Not yet (honest roadmap)

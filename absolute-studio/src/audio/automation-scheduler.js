@@ -49,5 +49,59 @@
     for (const p of [nodes.autoVol.gain, nodes.autoPan.pan, nodes.autoMute.gain]) cancelParam(p);
   }
 
-  root.AutomationScheduler = { scheduleTrack, cancelTrack, volMap, CURVE_RATE };
+  /* latest automation point across all tracks/params — defines the horizon */
+  function lastAutomationTime(tracks) {
+    let m = 0;
+    for (const t of tracks) {
+      if (!t.automation) continue;
+      for (const k of ["volume", "pan", "mute"]) {
+        const pts = t.automation[k];
+        if (pts && pts.length) m = Math.max(m, pts[pts.length - 1].time);
+      }
+    }
+    return m;
+  }
+
+  /* ── transport-level orchestration ──
+     Bind once to the app (DI), then call before every playback/export
+     and whenever a point is edited mid-playback.
+     env: { getTracks(), getNodes(trackId) -> nodes|null, sessionEnd() } */
+  function createTransportScheduler(env) {
+    const horizon = (fromPos) =>
+      Math.max(env.sessionEnd(), lastAutomationTime(env.getTracks()) + 1, fromPos + 2);
+
+    /* fromPos: timeline seconds; when: AudioContext time of fromPos */
+    function scheduleAll(fromPos, when) {
+      const end = horizon(fromPos);
+      for (const t of env.getTracks()) {
+        const n = env.getNodes(t.id);
+        if (n) scheduleTrack(n, t, fromPos, when, end);
+      }
+      return end;
+    }
+
+    /* mid-playback edit → re-bake curves slightly ahead of the playhead.
+       Timeline→context conversion: a timeline position T sounds at
+       playStartCtx + (T - playStartPos). This is the piece naive
+       schedulers get wrong by passing point.time straight to AudioParams. */
+    function rescheduleFromPlayhead({ pos, playStartPos, playStartCtx, lookahead = 0.06 }) {
+      const fromPos = pos + lookahead;
+      const when = playStartCtx + (fromPos - playStartPos);
+      scheduleAll(fromPos, when);
+      return { fromPos, when };
+    }
+
+    function cancelAll() {
+      for (const t of env.getTracks()) {
+        const n = env.getNodes(t.id);
+        if (n) cancelTrack(n);
+      }
+    }
+
+    return { scheduleAll, rescheduleFromPlayhead, cancelAll };
+  }
+
+  const api = { scheduleTrack, cancelTrack, volMap, CURVE_RATE, lastAutomationTime, createTransportScheduler };
+  root.AutomationScheduler = api;
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

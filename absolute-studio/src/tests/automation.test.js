@@ -12,10 +12,12 @@ const {
 } = require("../core/automation-validator.js");
 const AutomationCore = require("../core/automation-api.js");
 const AutomationLaneController = require("../ui/automation-lane-controller.js");
-// lane/editor are browser namespaces resolving core helpers via the global object
+// lane/editor/scheduler are browser namespaces resolving core helpers via the global object
 Object.assign(globalThis, require("../core/automation-core.js"));
+globalThis.AutomationValidator = require("../core/automation-validator.js");
 const AutomationLaneUI = require("../ui/automation-lane.js");
 const AutomationEditor = require("../ui/automation-editor.js");
+const AutomationScheduler = require("../audio/automation-scheduler.js");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -424,6 +426,114 @@ test("double-click and right-click delete the point and reschedule playback", ()
   hit = ed.hitTest(172 + 30, 129, L);
   ed.onPointerDown(hit, ev({ button: 2 }), 172 + 30, 129);
   assert.strictEqual(track.automation.volume.length, 0);
+});
+
+console.log("\nSCHEDULER (AudioParam curves, headless)");
+
+/* fake AudioParam recording every scheduling call */
+function fakeParam(value = 1, withHold = true) {
+  const p = { value, events: [] };
+  p.cancelScheduledValues = (t) => p.events.push(["cancel", t]);
+  if (withHold) p.cancelAndHoldAtTime = (t) => p.events.push(["cancelHold", t]);
+  p.setValueCurveAtTime = (curve, when, dur) => p.events.push(["curve", when, dur, curve]);
+  p.setValueAtTime = (v, t) => p.events.push(["set", v, t]);
+  return p;
+}
+function fakeNodes(withHold = true) {
+  return {
+    autoVol: { gain: fakeParam(1, withHold) },
+    autoPan: { pan: fakeParam(0, withHold) },
+    autoMute: { gain: fakeParam(1, withHold) },
+  };
+}
+const curveEvent = (p) => p.events.find(e => e[0] === "curve");
+
+test("scheduleTrack bakes a dB→linear curve with the given when/duration", () => {
+  const nodes = fakeNodes();
+  const track = {
+    gainDb: -6, pan: 0,
+    automation: { volume: [{ id: "a", time: 0, value: 0 }, { id: "b", time: 10, value: -60 }], pan: [], mute: [], effects: {} },
+  };
+  AutomationScheduler.scheduleTrack(nodes, track, 0, 42, 10);
+  const ev = curveEvent(nodes.autoVol.gain);
+  assert.ok(ev, "volume curve scheduled");
+  assert.strictEqual(ev[1], 42);                       // when = context time, as given
+  approx(ev[2], 10);                                   // duration = end - fromPos
+  const curve = ev[3];
+  approx(curve[0], 1, 1e-6);                           // 0 dB → gain 1
+  approx(curve[curve.length - 1], 0, 1e-6);            // -60 dB → true silence
+  const mid = curve[Math.floor(curve.length / 2)];
+  approx(mid, Math.pow(10, -30 / 20), 2e-3);           // -30 dB at the midpoint (linear-in-dB)
+  // params without points stay untouched
+  assert.strictEqual(curveEvent(nodes.autoPan.pan), undefined);
+  assert.strictEqual(curveEvent(nodes.autoMute.gain), undefined);
+});
+
+test("base value holds before the first point; mute curve is inverted (1=muted→gain 0)", () => {
+  const nodes = fakeNodes();
+  const track = {
+    gainDb: 0, pan: 0.5,
+    automation: {
+      volume: [],
+      pan: [{ id: "p", time: 6, value: -1 }],
+      mute: [{ id: "m", time: 4, value: 1 }],
+      effects: {},
+    },
+  };
+  AutomationScheduler.scheduleTrack(nodes, track, 0, 0, 8);
+  const pan = curveEvent(nodes.autoPan.pan)[3];
+  approx(pan[0], 0.5, 1e-6);                           // track pan as base before first point
+  approx(pan[pan.length - 1], -1, 1e-6);               // last point value afterwards
+  const mute = curveEvent(nodes.autoMute.gain)[3];
+  approx(mute[0], 1, 1e-6);                            // not muted before first point
+  approx(mute[mute.length - 1], 0, 1e-6);              // muted → gate closed
+});
+
+test("transport scheduler converts timeline time → AudioContext time correctly", () => {
+  const nodes = fakeNodes();
+  const track = {
+    id: "t1", gainDb: 0, pan: 0,
+    automation: { volume: [{ id: "a", time: 0, value: -12 }, { id: "b", time: 9, value: 0 }], pan: [], mute: [], effects: {} },
+  };
+  const ts = AutomationScheduler.createTransportScheduler({
+    getTracks: () => [track],
+    getNodes: (id) => (id === "t1" ? nodes : null),
+    sessionEnd: () => 10,
+  });
+  // playback started at timeline 2 s when context clock was 100 s; edit at playhead 5 s
+  const r = ts.rescheduleFromPlayhead({ pos: 5, playStartPos: 2, playStartCtx: 100 });
+  approx(r.fromPos, 5.06);
+  approx(r.when, 103.06);                              // NOT 5.06 — the naive-scheduler bug
+  const ev = curveEvent(nodes.autoVol.gain);
+  approx(ev[1], 103.06);
+  approx(ev[2], 10 - 5.06);                            // horizon = sessionEnd
+});
+
+test("cancelAll prefers cancelAndHoldAtTime, falls back to cancelScheduledValues, skips missing nodes", () => {
+  const withHold = fakeNodes(true), without = fakeNodes(false);
+  const tracks = [
+    { id: "a", gainDb: 0, pan: 0, automation: emptyAutomation() },
+    { id: "b", gainDb: 0, pan: 0, automation: emptyAutomation() },
+    { id: "ghost", gainDb: 0, pan: 0, automation: emptyAutomation() },
+  ];
+  const ts = AutomationScheduler.createTransportScheduler({
+    getTracks: () => tracks,
+    getNodes: (id) => (id === "a" ? withHold : id === "b" ? without : null), // ghost → no nodes, no throw
+    sessionEnd: () => 1,
+  });
+  ts.cancelAll();
+  assert.strictEqual(withHold.autoVol.gain.events[0][0], "cancelHold");
+  assert.strictEqual(without.autoVol.gain.events[0][0], "cancel");
+});
+
+test("lastAutomationTime scans every track and param", () => {
+  const tracks = [
+    { automation: { volume: [{ id: "a", time: 3, value: 0 }], pan: [], mute: [], effects: {} } },
+    { automation: { volume: [], pan: [], mute: [{ id: "b", time: 7.5, value: 1 }], effects: {} } },
+    { /* legacy track without automation */ },
+  ];
+  approx(AutomationScheduler.lastAutomationTime(tracks), 7.5);
+  approx(AutomationScheduler.lastAutomationTime([]), 0);
 });
 
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");

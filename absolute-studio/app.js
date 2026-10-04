@@ -177,44 +177,30 @@ function applyTrackGains() {
   if (master) master.gain.gain.value = db2lin(master.gainDb);
 }
 
-/* curve scheduling itself lives in src/audio/automation-scheduler.js —
-   runs on AudioParams in the engine, independent of the UI render loop */
-
-function lastAutomationTime() {
-  let m = 0;
-  for (const t of state.tracks) {
-    if (!t.automation) continue;
-    for (const k of ["volume", "pan", "mute"]) {
-      const pts = t.automation[k];
-      if (pts && pts.length) m = Math.max(m, pts[pts.length - 1].time);
-    }
-  }
-  return m;
-}
+/* curve scheduling + transport orchestration live in
+   src/audio/automation-scheduler.js (AudioParams only, no UI state) */
+const transportAuto = AutomationScheduler.createTransportScheduler({
+  getTracks: () => state.tracks,
+  getNodes: (id) => trackNodes.get(id) || null,
+  sessionEnd: () => sessionLength(),
+});
 
 function scheduleAutomationAll(fromPos, when) {
-  const end = Math.max(sessionLength(), lastAutomationTime() + 1, fromPos + 2);
-  for (const t of state.tracks) {
-    const n = trackNodes.get(t.id);
-    if (n) AutomationScheduler.scheduleTrack(n, t, fromPos, when, end);
-  }
+  transportAuto.scheduleAll(fromPos, when);
 }
 
 function cancelAutomationAll() {
-  if (!ctx) return;
-  for (const [, n] of trackNodes) AutomationScheduler.cancelTrack(n);
+  if (ctx) transportAuto.cancelAll();
 }
 
 /* re-bake curves mid-playback after an automation edit (no transport hiccup) */
 function rescheduleAutomationLive() {
   if (!ctx || !view.playing || view.recording) return;
-  const fromPos = currentPos() + 0.06;
-  const when = view.playStartCtx + (fromPos - view.playStartPos);
-  const end = Math.max(sessionLength(), lastAutomationTime() + 1, fromPos + 2);
-  for (const t of state.tracks) {
-    const n = trackNodes.get(t.id);
-    if (n) AutomationScheduler.scheduleTrack(n, t, fromPos, when, end);
-  }
+  transportAuto.rescheduleFromPlayhead({
+    pos: currentPos(),
+    playStartPos: view.playStartPos,
+    playStartCtx: view.playStartCtx,
+  });
 }
 
 function getAudioBuffer(bufferId, forCtx) {
