@@ -1751,16 +1751,21 @@ function saveAudioToDb(bufferId) {
   } catch (e) { /* quota — session JSON still saves */ }
 }
 
+let lastSavedSnapshot = ""; // dirty gate: silent autosave skips the IDB write when nothing changed
+
 function saveSession(silent) {
   if (!idb) return;
   const used = new Set(state.clips.map(c => c.bufferId).filter(Boolean));
-  const json = JSON.stringify({
+  const payload = {
     name: state.name, bpm: state.bpm, tsN: state.tsN, tsD: state.tsD,
     tracks: state.tracks, clips: state.clips, markers: state.markers, loop: state.loop,
     masterDb: master ? master.gainDb : 0,
     view: { pxPerSec: view.pxPerSec, scrollX: view.scrollX, metro: view.metro, snap: view.snap, playhead: view.playhead },
-    savedAt: Date.now(),
-  });
+  };
+  const snapshot = JSON.stringify(payload);
+  if (silent && snapshot === lastSavedSnapshot) return; // idle — no write, no audio-prune transaction
+  payload.savedAt = Date.now();
+  const json = JSON.stringify(payload);
   try {
     const tx = idb.transaction(["kv", "audio"], "readwrite");
     tx.objectStore("kv").put(json, "session");
@@ -1770,6 +1775,7 @@ function saveSession(silent) {
       for (const k of this.result) if (!used.has(k)) store.delete(k);
     };
     view.lastSave = Date.now();
+    lastSavedSnapshot = snapshot;
     if (!silent) toast("Session saved");
   } catch (e) {
     if (!silent) toast("Save failed: " + e.message);
