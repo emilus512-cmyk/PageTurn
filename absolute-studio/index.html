@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ABSOLUTE STUDIO X</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- TRANSPORT -->
+<div id="transport">
+  <button id="btnRec" title="Record (Ctrl+R)">&#9679; REC</button>
+  <button id="btnPlay" title="Play/Stop (Space)">&#9654;</button>
+  <button id="btnStop" title="Stop &amp; return (Enter = to 0)">&#9632;</button>
+  <div id="posDisplay">1.1.1 <small>|</small> 0:00.000</div>
+  <div class="sep"></div>
+  <div class="tfield">BPM <input id="bpm" type="number" min="20" max="400" step="0.5" value="120"></div>
+  <div class="tfield"><select id="tsig">
+    <option value="4/4" selected>4/4</option><option value="3/4">3/4</option>
+    <option value="6/8">6/8</option><option value="5/4">5/4</option><option value="7/8">7/8</option>
+  </select></div>
+  <button id="btnMetro" title="Metronome">CLICK</button>
+  <button id="btnSnap" class="on" title="Snap to grid (G)">SNAP</button>
+  <button id="btnLoop" title="Loop (L) — drag in ruler to set region">LOOP</button>
+  <div class="sep"></div>
+  <div class="tfield">ZOOM <input id="zoom" type="range" min="8" max="400" value="48"></div>
+  <div class="spacer"></div>
+  <button id="btnAddAudio" title="New audio track (Ctrl+T)">+ AUDIO</button>
+  <button id="btnAddMidi" title="New MIDI track (Ctrl+M)">+ MIDI</button>
+  <button id="btnMarker" title="Add section marker at playhead (Shift+M)">+ MARKER</button>
+  <div class="sep"></div>
+  <button id="btnSave" title="Save session (Ctrl+S)">SAVE</button>
+  <button id="btnExport" title="Export (Ctrl+E)">EXPORT</button>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="timelineWrap">
+    <canvas id="timeline" tabindex="0"></canvas>
+    <div id="pianoroll" class="hidden">
+      <div id="prHeader">
+        PIANO ROLL — <b id="prClipName"></b>
+        <span>draw: click &nbsp;|&nbsp; move: drag &nbsp;|&nbsp; resize: right edge &nbsp;|&nbsp; delete: right-click</span>
+        <button id="prClose">CLOSE (Esc)</button>
+      </div>
+      <canvas id="prCanvas"></canvas>
+    </div>
+  </div>
+  <div id="mixer">
+    <div id="mixerTitle">MIXER</div>
+    <div id="strips"></div>
+  </div>
+</div>
+
+<!-- STATUS -->
+<div id="status">
+  <span>POS <b id="stBars">1.1.1</b></span>
+  <span>TIME <b id="stTime">0:00.000</b></span>
+  <span>SMP <b id="stSmp">0</b></span>
+  <span>SR <b id="stSr">—</b></span>
+  <span id="stCpu">CPU <b>0%</b></span>
+  <span>SESSION <b id="stSession">Untitled</b></span>
+  <span id="stSaved"></span>
+  <span class="spacer" style="flex:1"></span>
+  <span id="stHint">Ctrl+T track · R rec · Space play · B split · Ctrl+D dup · Shift+M marker</span>
+</div>
+
+<!-- CLIP INSPECTOR -->
+<div id="inspector" class="float hidden">
+  <h3>CLIP</h3>
+  <div class="frow"><label>Name</label><input type="text" id="insName"></div>
+  <div class="frow"><label>Gain</label><input type="range" id="insGain" min="-24" max="24" step="0.5" value="0"><span class="val" id="insGainV">0.0 dB</span></div>
+  <div class="frow"><label>Fade in</label><input type="range" id="insFadeIn" min="0" max="2000" step="5" value="20"><span class="val" id="insFadeInV">20 ms</span></div>
+  <div class="frow"><label>Fade out</label><input type="range" id="insFadeOut" min="0" max="2000" step="5" value="20"><span class="val" id="insFadeOutV">20 ms</span></div>
+  <div class="frow" id="insPitchRow"><label>Varispeed</label><input type="range" id="insPitch" min="-12" max="12" step="1" value="0"><span class="val" id="insPitchV">0 st</span></div>
+  <div class="fbtns">
+    <button id="insDelete">DELETE</button>
+    <button id="insClose" class="primary">DONE</button>
+  </div>
+</div>
+
+<!-- EXPORT -->
+<div id="exportDlg" class="float hidden">
+  <h3>EXPORT MASTER</h3>
+  <div class="frow"><label>Filename</label><input type="text" id="expName" value="Song_Final_Master_v1"></div>
+  <div class="frow"><label>Format</label><select id="expFormat"><option value="wav">WAV (lossless)</option></select></div>
+  <div class="frow"><label>Bit depth</label><select id="expBits"><option value="24">24-bit</option><option value="16">16-bit</option></select></div>
+  <div class="frow"><label>Sample rate</label><select id="expSr"><option value="48000">48 kHz</option><option value="44100">44.1 kHz</option></select></div>
+  <div class="frow"><label>Loudness</label><select id="expNorm">
+    <option value="none">As mixed</option>
+    <option value="-14" selected>Normalize -14 LUFS (streaming)</option>
+    <option value="-12">Normalize -12 LUFS (CD)</option>
+    <option value="peak">Peak normalize -1 dBFS</option>
+  </select></div>
+  <div class="frow"><label>Stems</label><input type="checkbox" id="expStems"> <span style="color:var(--dim)">export each track separately</span></div>
+  <div class="fbtns">
+    <button id="expCancel">CANCEL</button>
+    <button id="expGo" class="primary">EXPORT (BACKGROUND)</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
