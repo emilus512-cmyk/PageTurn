@@ -1,11 +1,15 @@
-/* ABSOLUTE STUDIO X — automation core tests
-   run: node tests/automation.test.js */
+/* ABSOLUTE STUDIO X — automation tests (core + validator + serializer)
+   run: node src/tests/automation.test.js */
 "use strict";
 const assert = require("assert");
 const {
   AUTO_RANGES, autoSort, autoInsert, autoClampValue, autoValue, autoCurve,
-  emptyAutomation, serializeAutomation, deserializeAutomation,
-} = require("../automation-core.js");
+  emptyAutomation,
+} = require("../core/automation-core.js");
+const { serializeAutomation, deserializeAutomation } = require("../core/automation-serializer.js");
+const {
+  normalizePoint, normalizePoints, normalizeAutomation, ensureTrackAutomation, repairTrackAutomation,
+} = require("../core/automation-validator.js");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -111,6 +115,81 @@ test("deserialization repairs missing arrays and sorts corrupted order", () => {
   assert.deepStrictEqual(b.pan, []);
   assert.deepStrictEqual(b.mute, []);
   assert.deepStrictEqual(b.effects, {});
+});
+
+test("deserializing garbage yields a safe empty automation", () => {
+  assert.deepStrictEqual(deserializeAutomation("not json {{{"), emptyAutomation());
+  assert.deepStrictEqual(deserializeAutomation("null"), emptyAutomation());
+  assert.deepStrictEqual(deserializeAutomation("42"), emptyAutomation());
+});
+
+console.log("\nVALIDATOR (normalizacja i naprawy)");
+
+test("normalizePoint drops NaN/Infinity/missing, clamps range, fixes negative time", () => {
+  assert.strictEqual(normalizePoint("volume", null), null);
+  assert.strictEqual(normalizePoint("volume", { time: NaN, value: 0 }), null);
+  assert.strictEqual(normalizePoint("volume", { time: 1, value: Infinity }), null);
+  assert.strictEqual(normalizePoint("volume", { time: "3", value: 0 }), null);
+  const p = normalizePoint("volume", { id: "a", time: -5, value: 99 });
+  approx(p.time, 0);
+  approx(p.value, AUTO_RANGES.volume.max);
+  assert.strictEqual(p.id, "a");
+  assert.ok(normalizePoint("pan", { time: 0, value: 0.5 }).id.length > 0); // missing id → generated
+});
+
+test("normalizePoints filters invalid entries, dedupes ids, sorts", () => {
+  const out = normalizePoints("pan", [
+    { id: "b", time: 7, value: 0.5 },
+    { id: "b", time: 1, value: -2 },        // dup id + out of range
+    { id: "c", time: NaN, value: 0 },       // broken
+    "junk",
+  ]);
+  assert.strictEqual(out.length, 2);
+  assert.ok(out[0].time <= out[1].time);
+  assert.notStrictEqual(out[0].id, out[1].id);
+  approx(out[0].value, -1); // clamped to pan min
+});
+
+test("normalizeAutomation never mutates its input and deep-cleans effects", () => {
+  const src = {
+    volume: [{ id: "v", time: 2, value: 0 }],
+    effects: { fx1: { wetDry: [{ id: "w", time: 1, value: 7 }] }, broken: null },
+  };
+  const frozenCopy = JSON.parse(JSON.stringify(src));
+  const out = normalizeAutomation(src);
+  assert.deepStrictEqual(src, frozenCopy);                      // input untouched
+  approx(out.effects.fx1.wetDry[0].value, AUTO_RANGES.wetDry.max); // clamped to 1
+  assert.ok(!("broken" in out.effects));
+  assert.deepStrictEqual(out.pan, []);
+});
+
+test("ensureTrackAutomation attaches defaults in place, keeps point references", () => {
+  const track = { gainDb: 0 };
+  ensureTrackAutomation(track);
+  assert.deepStrictEqual(track.automation, emptyAutomation());
+  assert.deepStrictEqual(track.autoLane, { shown: false, param: "volume" });
+  // live-drag safety: repeated calls must NOT replace point objects
+  const p = { id: "p", time: 1, value: 0 };
+  track.automation.volume.push(p);
+  ensureTrackAutomation(track);
+  assert.strictEqual(track.automation.volume[0], p);
+  // invalid lane param is repaired
+  track.autoLane.param = "nonsense";
+  ensureTrackAutomation(track);
+  assert.strictEqual(track.autoLane.param, "volume");
+});
+
+test("repairTrackAutomation deep-repairs data loaded from disk", () => {
+  const track = {
+    gainDb: 0,
+    automation: { volume: [{ id: "x", time: 5, value: 999 }, null, { time: NaN }] },
+    autoLane: { shown: true, param: "wetDry" },
+  };
+  repairTrackAutomation(track);
+  assert.strictEqual(track.automation.volume.length, 1);
+  approx(track.automation.volume[0].value, AUTO_RANGES.volume.max);
+  assert.strictEqual(track.autoLane.param, "volume");
+  assert.strictEqual(track.autoLane.shown, true); // hiding/showing never touches data
 });
 
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");

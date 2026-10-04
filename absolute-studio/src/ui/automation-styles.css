@@ -1,0 +1,16 @@
+/* ABSOLUTE STUDIO X — automation lane theme
+   The lane is drawn on the timeline canvas; the renderer
+   (automation-lane.js) reads these custom properties at startup,
+   so lane theming lives here with the rest of the CSS. */
+:root {
+  --auto-lane-bg: #0b0d11;
+  --auto-lane-grid: #1a1a20;
+  --auto-lane-zero: #2b2b33;
+  --auto-lane-label: #4a4a54;
+  --auto-lane-header: #0f1016;
+  --auto-lane-border: #232329;
+  --auto-lane-btn: #1b1b20;
+  --auto-lane-btn-border: #2e2e36;
+  --auto-lane-btn-text: #76767e;
+  --auto-lane-btn-disabled: #3a3a42;
+}

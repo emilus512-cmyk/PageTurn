@@ -49,17 +49,12 @@ const view = {
 
 const HEADER_W = 172, RULER_H = 30, ARR_H = 24, LANE_H = 64, LANE_H_MULTI = 44, AUTO_H = 58;
 
-/* automation model helpers (core math lives in automation-core.js) */
-function ensureAutoModel(t) {
-  if (!t.automation) t.automation = emptyAutomation();
-  for (const k of ["volume", "pan", "mute"]) if (!Array.isArray(t.automation[k])) t.automation[k] = [];
-  if (!t.automation.effects) t.automation.effects = {};
-  if (!t.autoLane) t.autoLane = { shown: false, param: "volume" };
-  return t;
-}
-function autoPoints(t, param) { return ensureAutoModel(t).automation[param]; }
-function autoBase(t, param) { return param === "volume" ? t.gainDb : param === "pan" ? t.pan : 0; }
-const volMap = (db) => (db <= -59.5 ? 0 : db2lin(db));
+/* automation modules (src/): core math + validator + serializer are shared
+   with Node tests; scheduler/lane/editor are browser-side */
+const ensureAutoModel = (t) => AutomationValidator.ensureTrackAutomation(t);
+const autoPoints = (t, param) => ensureAutoModel(t).automation[param];
+const autoBase = (t, param) => (param === "volume" ? t.gainDb : param === "pan" ? t.pan : 0);
+const volMap = AutomationScheduler.volMap;
 
 // audio data registry: bufferId -> {sr, chans:[Float32Array,...]}  (raw, engine-agnostic)
 const audioStore = new Map();
@@ -182,25 +177,8 @@ function applyTrackGains() {
   if (master) master.gain.gain.value = db2lin(master.gainDb);
 }
 
-/* schedule automation curves on AudioParams — runs in the audio engine,
-   independent of UI render; linear between curve samples ≙ our model */
-const AUTO_CURVE_RATE = 200; // curve pts/sec (AudioParam interpolates linearly between)
-function scheduleAutomation(nodes, t, fromPos, when, end) {
-  ensureAutoModel(t);
-  const dur = Math.max(0.5, end - fromPos);
-  const N = Math.min(240000, Math.max(2, Math.ceil(dur * AUTO_CURVE_RATE)));
-  const sched = (param, pts, base, step, map, clampLo, clampHi) => {
-    if (!pts.length) return;
-    const curve = autoCurve(pts, base, step, fromPos, dur, N, (v) => clamp(map(v), clampLo, clampHi));
-    try {
-      param.cancelScheduledValues(0);
-      param.setValueCurveAtTime(curve, when, dur);
-    } catch (e) { /* never block playback */ }
-  };
-  sched(nodes.autoVol.gain, t.automation.volume, t.gainDb, false, volMap, 0, 4);
-  sched(nodes.autoPan.pan, t.automation.pan, t.pan, false, (v) => v, -1, 1);
-  sched(nodes.autoMute.gain, t.automation.mute, 0, true, (v) => 1 - Math.round(v), 0, 1);
-}
+/* curve scheduling itself lives in src/audio/automation-scheduler.js —
+   runs on AudioParams in the engine, independent of the UI render loop */
 
 function lastAutomationTime() {
   let m = 0;
@@ -218,17 +196,13 @@ function scheduleAutomationAll(fromPos, when) {
   const end = Math.max(sessionLength(), lastAutomationTime() + 1, fromPos + 2);
   for (const t of state.tracks) {
     const n = trackNodes.get(t.id);
-    if (n) scheduleAutomation(n, t, fromPos, when, end);
+    if (n) AutomationScheduler.scheduleTrack(n, t, fromPos, when, end);
   }
 }
 
 function cancelAutomationAll() {
   if (!ctx) return;
-  for (const [, n] of trackNodes) {
-    for (const p of [n.autoVol.gain, n.autoPan.pan, n.autoMute.gain]) {
-      try { p.cancelScheduledValues(0); } catch (e) {}
-    }
-  }
+  for (const [, n] of trackNodes) AutomationScheduler.cancelTrack(n);
 }
 
 /* re-bake curves mid-playback after an automation edit (no transport hiccup) */
@@ -239,7 +213,7 @@ function rescheduleAutomationLive() {
   const end = Math.max(sessionLength(), lastAutomationTime() + 1, fromPos + 2);
   for (const t of state.tracks) {
     const n = trackNodes.get(t.id);
-    if (n) scheduleAutomation(n, t, fromPos, when, end);
+    if (n) AutomationScheduler.scheduleTrack(n, t, fromPos, when, end);
   }
 }
 
@@ -884,109 +858,31 @@ function drawClip(c, t, L) {
   }
 }
 
-/* ── automation lane drawing ── */
-const AUTO_PAD = 7;
-function autoValToY(param, v, L) {
-  const r = AUTO_RANGES[param];
-  return L.autoY + AUTO_PAD + (1 - (v - r.min) / (r.max - r.min)) * (L.autoH - 2 * AUTO_PAD);
-}
-function autoYToVal(param, y, L) {
-  const r = AUTO_RANGES[param];
-  const f = 1 - clamp((y - (L.autoY + AUTO_PAD)) / (L.autoH - 2 * AUTO_PAD), 0, 1);
-  return autoClampValue(param, r.min + f * (r.max - r.min));
-}
-
-function drawAutoLane(L) {
-  const t = L.track, param = t.autoLane.param;
-  const y0 = L.autoY, h = L.autoH;
-  const r = AUTO_RANGES[param];
-  const pts = autoPoints(t, param);
-  const base = autoBase(t, param);
-
-  // lane bg
-  g2.fillStyle = "#0b0d11";
-  g2.fillRect(HEADER_W, y0, cw - HEADER_W, h);
-  g2.strokeStyle = "#1e1e24";
-  g2.beginPath(); g2.moveTo(HEADER_W, y0 + h + 0.5); g2.lineTo(cw, y0 + h + 0.5); g2.stroke();
-
-  // reference lines + axis labels
-  g2.font = "8px monospace";
-  const refs = param === "volume" ? [{ v: 12, l: "+12" }, { v: 0, l: "0dB" }, { v: -60, l: "-inf" }]
-    : param === "pan" ? [{ v: 1, l: "R100" }, { v: 0, l: "C" }, { v: -1, l: "L100" }]
-    : [{ v: 1, l: "MUTE" }, { v: 0, l: "PLAY" }];
-  for (const rf of refs) {
-    const y = autoValToY(param, rf.v, L);
-    g2.strokeStyle = rf.v === 0 && param !== "mute" ? "#2b2b33" : "#1a1a20";
-    g2.beginPath(); g2.moveTo(HEADER_W, y + 0.5); g2.lineTo(cw, y + 0.5); g2.stroke();
-    g2.fillStyle = "#4a4a54";
-    g2.fillText(rf.l, HEADER_W + 4, y - 1 < y0 + 8 ? y + 8 : y - 2);
-  }
-
-  // curve (base before first point → dashed look when empty)
-  const step = !!r.step;
-  g2.strokeStyle = t.color;
-  g2.lineWidth = 1.5;
-  if (!pts.length) g2.setLineDash([4, 4]);
-  g2.beginPath();
-  let first = true;
-  for (let sx = HEADER_W; sx <= cw; sx += 2) {
-    const v = autoClampValue(param, autoValue(pts, Math.max(0, xToTime(sx)), base, step));
-    const y = autoValToY(param, v, L);
-    if (first) { g2.moveTo(sx, y); first = false; } else g2.lineTo(sx, y);
-  }
-  g2.stroke();
-  g2.setLineDash([]);
-  g2.lineWidth = 1;
-
-  // points
-  for (const p of pts) {
-    const x = timeToX(p.time);
-    if (x < HEADER_W - 5 || x > cw + 5) continue;
-    const y = autoValToY(param, p.value, L);
-    const hot = drag && drag.mode === "autoPoint" && drag.point === p;
-    g2.beginPath();
-    g2.arc(x, y, hot ? 5 : 3.5, 0, Math.PI * 2);
-    g2.fillStyle = hot ? "#fff" : t.color;
-    g2.fill();
-    g2.strokeStyle = "#0a0a0b";
-    g2.stroke();
-  }
-
-  // lane header (left of timeline)
-  g2.fillStyle = "#0f1016";
-  g2.fillRect(0, y0, HEADER_W, h);
-  g2.strokeStyle = "#232329";
-  g2.strokeRect(0.5, y0 + 0.5, HEADER_W - 1, h);
-  g2.fillStyle = t.color;
-  g2.fillRect(0, y0, 4, h);
-  g2.fillStyle = "#55555e";
-  g2.font = "9px monospace";
-  g2.fillText("AUTOMATION", 12, y0 + 13);
-  g2.font = "10px monospace";
-  for (const b of autoButtons(L)) {
-    const dis = b.disabled;
-    g2.fillStyle = b.on ? t.color + "" : "#1b1b20";
-    if (b.on) { g2.globalAlpha = 0.25; g2.fillRect(b.x, b.y, b.w, b.h); g2.globalAlpha = 1; }
-    else g2.fillRect(b.x, b.y, b.w, b.h);
-    g2.strokeStyle = b.on ? t.color : "#2e2e36";
-    g2.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
-    g2.fillStyle = dis ? "#3a3a42" : b.on ? t.color : "#76767e";
-    g2.fillText(b.label, b.x + (b.w - b.label.length * 6) / 2, b.y + 12);
-  }
-}
-
-function autoButtons(L) {
-  const y = L.autoY + L.autoH - 23;
-  const t = L.track;
-  const param = t.autoLane.param;
-  return [
-    { label: "VOL", param: "volume", on: param === "volume", x: 12, y, w: 32, h: 16 },
-    { label: "PAN", param: "pan", on: param === "pan", x: 48, y, w: 32, h: 16 },
-    { label: "MUTE", param: "mute", on: param === "mute", x: 84, y, w: 36, h: 16 },
-    { label: "FX", param: "fx", on: false, disabled: true, x: 124, y, w: 24, h: 16 },
-    { label: "×", act: "close", x: HEADER_W - 22, y: L.autoY + 4, w: 15, h: 14 },
-  ];
-}
+/* ── automation lane: renderer + editor live in src/ui, wired here via DI ── */
+const laneUI = AutomationLaneUI.create({
+  getG2: () => g2,
+  getCw: () => cw,
+  headerW: HEADER_W,
+  timeToX: (t) => timeToX(t),
+  xToTime: (x) => xToTime(x),
+  autoPoints, autoBase,
+  getDrag: () => drag,
+});
+const autoEditor = AutomationEditor.create({
+  laneUI,
+  headerW: HEADER_W,
+  autoPoints,
+  pushUndo,
+  applyTrackGains,
+  reschedule: () => rescheduleAutomationLive(),
+  invalidate,
+  snapTime: (t) => snapTime(t),
+  xToTime: (x) => xToTime(x),
+  uid, toast,
+  selectTrack: (id) => { view.selectedTrack = id; },
+  rebuildMixer: () => rebuildMixer(),
+});
+const drawAutoLane = (L) => laneUI.drawAutoLane(L);
 
 function drawTrackHeader(t, L, selected) {
   const y = L.y;
@@ -1052,22 +948,9 @@ function hitTest(mx, my) {
     return { zone: "arranger" };
   }
   for (const L of layout) {
-    // automation lane region
+    // automation lane region → editor module owns it
     if (L.autoShown && my >= L.autoY && my < L.autoY + L.autoH) {
-      if (mx < HEADER_W) {
-        for (const b of autoButtons(L)) {
-          if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return { zone: "autoBtn", btn: b, track: L.track, L };
-        }
-        return { zone: "autoHeader", track: L.track, L };
-      }
-      const param = L.track.autoLane.param;
-      const pts = autoPoints(L.track, param);
-      for (let i = pts.length - 1; i >= 0; i--) {
-        const p = pts[i];
-        const px = timeToX(p.time), py = autoValToY(param, p.value, L);
-        if ((mx - px) * (mx - px) + (my - py) * (my - py) <= 49) return { zone: "autoPoint", point: p, param, track: L.track, L };
-      }
-      return { zone: "autoLane", param, track: L.track, L };
+      return autoEditor.hitTest(mx, my, L);
     }
     if (my < L.y || my >= L.y + L.h) continue;
     if (mx < HEADER_W) {
@@ -1123,46 +1006,8 @@ cv.addEventListener("pointerdown", (e) => {
   } else if (hit.zone === "arranger" && mx > HEADER_W) {
     // click empty arranger = jump
     setPlayhead(snapTime(xToTime(mx)));
-  } else if (hit.zone === "autoBtn") {
-    if (hit.btn.disabled) { toast("FX wet/dry: no effects on this track yet (model ready)"); return; }
-    if (hit.btn.act === "close") hit.track.autoLane.shown = false;
-    else hit.track.autoLane.param = hit.btn.param;
-    invalidate();
-  } else if (hit.zone === "autoHeader") {
-    view.selectedTrack = hit.track.id;
-    rebuildMixer(); invalidate();
-  } else if (hit.zone === "autoPoint") {
-    view.selectedTrack = hit.track.id;
-    if (e.button === 2 || e.detail === 2) {
-      // delete point
-      pushUndo();
-      const arr = autoPoints(hit.track, hit.param);
-      const i = arr.indexOf(hit.point);
-      if (i >= 0) arr.splice(i, 1);
-      applyTrackGains(); rescheduleAutomationLive(); invalidate();
-      drag = null;
-      return;
-    }
-    drag = {
-      mode: "autoPoint", track: hit.track, param: hit.param, point: hit.point, L: hit.L,
-      undoPushed: false, lock: null, pressX: mx, pressY: my,
-      orig: { time: hit.point.time, value: hit.point.value },
-    };
-    invalidate();
-  } else if (hit.zone === "autoLane") {
-    view.selectedTrack = hit.track.id;
-    if (e.button === 2) return;
-    // click on the line = add a point (then drag it)
-    pushUndo();
-    const time = e.altKey ? Math.max(0, xToTime(mx)) : snapTime(xToTime(mx));
-    const value = autoYToVal(hit.param, my, hit.L);
-    const p = autoInsert(autoPoints(hit.track, hit.param), { id: uid(), time, value });
-    drag = {
-      mode: "autoPoint", track: hit.track, param: hit.param, point: p, L: hit.L,
-      undoPushed: true, lock: null, pressX: mx, pressY: my,
-      orig: { time: p.time, value: p.value },
-    };
-    applyTrackGains(); invalidate();
+  } else if (hit.zone === "autoBtn" || hit.zone === "autoHeader" || hit.zone === "autoPoint" || hit.zone === "autoLane") {
+    drag = autoEditor.onPointerDown(hit, e, mx, my);
   } else if (hit.zone === "hbtn") {
     toggleHeaderBtn(hit.btn.key, hit.track);
   } else if (hit.zone === "header") {
@@ -1243,22 +1088,7 @@ cv.addEventListener("pointermove", (e) => {
   }
 
   if (drag.mode === "autoPoint") {
-    if (!drag.undoPushed) { pushUndo(); drag.undoPushed = true; }
-    let time = e.altKey ? Math.max(0, xToTime(mx)) : snapTime(xToTime(mx)); // Alt = snap off
-    let value = autoYToVal(drag.param, my, drag.L);
-    if (e.shiftKey) {
-      // constrain to dominant axis
-      if (!drag.lock) {
-        const dx = Math.abs(mx - drag.pressX), dy = Math.abs(my - drag.pressY);
-        if (dx > 3 || dy > 3) drag.lock = dx >= dy ? "x" : "y";
-      }
-      if (drag.lock === "x") value = drag.orig.value;
-      else if (drag.lock === "y") time = drag.orig.time;
-    } else drag.lock = null;
-    drag.point.time = time;
-    drag.point.value = value;
-    autoSort(autoPoints(drag.track, drag.param));
-    applyTrackGains(); invalidate();
+    autoEditor.onPointerMove(drag, e, mx, my);
     return;
   }
 
@@ -1309,7 +1139,7 @@ cv.addEventListener("pointermove", (e) => {
 });
 
 cv.addEventListener("pointerup", () => {
-  if (drag && drag.mode === "autoPoint") rescheduleAutomationLive();
+  if (drag && drag.mode === "autoPoint") autoEditor.onPointerUp(drag);
   drag = null; cv.style.cursor = "default";
 });
 cv.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1788,7 +1618,7 @@ async function renderMix(sr, soloTrackId) {
     pan.pan.value = t.automation.pan.length ? 0 : t.pan;
     gn.gain.value = t.automation.volume.length ? 1 : db2lin(t.gainDb);
     inp.connect(pan).connect(autoPan).connect(gn).connect(autoVol).connect(autoMute).connect(mIn);
-    scheduleAutomation({ autoVol, autoPan, autoMute }, t, 0, 0, frames / sr);
+    AutomationScheduler.scheduleTrack({ autoVol, autoPan, autoMute }, t, 0, 0, frames / sr);
     for (const c of state.clips.filter(c => c.trackId === t.id)) {
       scheduleClip(c, t, ocx, inp, 0, 0, sources);
     }
@@ -1964,7 +1794,7 @@ async function loadSession() {
         state.name = o.name || "Untitled";
         state.bpm = o.bpm; state.tsN = o.tsN; state.tsD = o.tsD;
         state.tracks = o.tracks; state.clips = o.clips; state.markers = o.markers || [];
-        state.tracks.forEach(ensureAutoModel);        // migrate pre-automation sessions
+        state.tracks.forEach(AutomationValidator.repairTrackAutomation); // deep repair of disk data
         state.loop = o.loop || { on: false, start: 0, end: 8 };
         if (o.view) {
           view.pxPerSec = o.view.pxPerSec || 48;

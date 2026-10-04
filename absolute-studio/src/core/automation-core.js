@@ -66,21 +66,9 @@ function emptyAutomation() {
   return { volume: [], pan: [], mute: [], effects: {} };
 }
 
-/* serialization round-trip helper (plain JSON — no NaN/Infinity allowed) */
-function serializeAutomation(a) { return JSON.stringify(a); }
-function deserializeAutomation(s) {
-  const a = JSON.parse(s);
-  for (const k of ["volume", "pan", "mute"]) {
-    if (!Array.isArray(a[k])) a[k] = [];
-    autoSort(a[k]);
-  }
-  if (!a.effects || typeof a.effects !== "object") a.effects = {};
-  return a;
-}
-
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     AUTO_RANGES, autoSort, autoInsert, autoClampValue, autoValue, autoCurve,
-    emptyAutomation, serializeAutomation, deserializeAutomation,
+    emptyAutomation,
   };
 }

@@ -53,15 +53,37 @@ Alt+A automation lane (click = add point · drag = move · double/right-click = 
                        Shift = axis lock · Alt while dragging = snap off)
 ```
 
+## Structure
+
+```
+absolute-studio/
+├── index.html / style.css / app.js   # shell: timeline, mixer, transport, wiring
+└── src/
+    ├── core/
+    │   ├── automation-core.js        # pure automation math (interpolation, curves)
+    │   ├── automation-serializer.js  # canonical JSON round-trip (validates both ways)
+    │   └── automation-validator.js   # normalization & repair of untrusted/disk data
+    ├── ui/
+    │   ├── automation-lane.js        # lane renderer on the timeline canvas
+    │   ├── automation-editor.js      # add/drag/delete points, axis lock, snap
+    │   └── automation-styles.css     # lane theme (CSS custom properties)
+    ├── audio/
+    │   └── automation-scheduler.js   # AudioParam curve scheduling (live + offline)
+    └── tests/
+        └── automation.test.js        # 21 assertions, plain Node
+```
+
+`core/` modules are pure (no DOM, no WebAudio) and run in both browser and Node.
+`ui/` and `audio/` are browser modules wired into `app.js` by dependency injection —
+the scheduler drives AudioParams independently of the render loop, and the same
+scheduling code runs in the realtime context and the offline exporter, so playback
+and bounce always agree.
+
 ## Tests
 
 ```bash
-node tests/automation.test.js   # interpolation, serialization, undo/redo — 15 assertions
+node src/tests/automation.test.js   # interpolation, validator repairs, serialization, undo/redo
 ```
-
-Automation math is isolated in `automation-core.js` (pure, no DOM/WebAudio) and shared by
-the UI, the realtime engine (AudioParam `setValueCurveAtTime`, independent of the render
-loop) and the offline exporter — so playback and export are guaranteed to agree.
 
 ## Not yet (honest roadmap)
 
