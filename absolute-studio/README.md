@@ -30,6 +30,7 @@ No build step. No dependencies. Three files: `index.html`, `style.css`, `app.js`
 | Nondestructive everything | ✅ trim/slip/split/gain/fades/varispeed never touch source audio |
 | Crossfades / clip gain / fade handles | ✅ per-clip fades (default-ish 20 ms zone), gain envelope via inspector (right-click clip) |
 | Varispeed pitch (±12 st) | ✅ clip inspector (labelled varispeed — repitch style) |
+| Automation lanes on the timeline (Alt+A) | ✅ Volume (-∞…+12 dB) / Pan (L100–C–R100) / Mute per track; linear interpolation, base value before first point; plays live + in export; lane lives under the track, no panel |
 | Arranger track with sections | ✅ Shift+M markers (INTRO/VERSE/CHORUS…), click = jump, drag = move |
 | Tempo / time signatures | ✅ BPM field (MIDI clips rescale, audio stays put), 4/4 · 3/4 · 6/8 · 5/4 · 7/8 |
 | MIDI + piano roll (split view, same window) | ✅ double-click an Inst track → draw notes; built-in poly synth |
@@ -48,13 +49,26 @@ Ctrl+T new audio · Ctrl+M new MIDI · Ctrl+R / R record · Space play/stop · E
 Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Ctrl+E export · Ctrl+D duplicate
 Ctrl+[ / Ctrl+] trim to playhead · Alt+←/→ nudge · B split · G snap · L loop
 Shift+M marker · M mute · S solo · 1–9 select track · +/- zoom · Del delete
+Alt+A automation lane (click = add point · drag = move · double/right-click = delete
+                       Shift = axis lock · Alt while dragging = snap off)
 ```
+
+## Tests
+
+```bash
+node tests/automation.test.js   # interpolation, serialization, undo/redo — 15 assertions
+```
+
+Automation math is isolated in `automation-core.js` (pure, no DOM/WebAudio) and shared by
+the UI, the realtime engine (AudioParam `setValueCurveAtTime`, independent of the render
+loop) and the offline exporter — so playback and export are guaranteed to agree.
 
 ## Not yet (honest roadmap)
 
 - VST/VST3 hosting — impossible in a browser sandbox; the native bridge lives in `../daw-bridge`
   (plugin sandboxing per spec = one process per plugin, planned Phase 2 there).
-- Sends/returns, group buses, automation lanes beyond clip gain.
+- Sends/returns, group buses; FX wet/dry automation waits for an effects rack
+  (the data model — `automation.effects[effectId].wetDry` — is already in place).
 - Loop-record take cycling, punch in/out.
 - True time-stretch (tempo change without repitch) — current pitch control is varispeed.
 - MP3/FLAC encode (WAV is the lossless primary per spec).
