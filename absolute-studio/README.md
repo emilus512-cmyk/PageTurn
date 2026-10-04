@@ -60,8 +60,9 @@ absolute-studio/
 ├── index.html / style.css / app.js   # shell: timeline, mixer, transport, wiring
 └── src/
     ├── core/
-    │   ├── automation-core.js        # pure automation math (interpolation, curves)
-    │   ├── automation-serializer.js  # canonical JSON round-trip (validates both ways)
+    │   ├── automation-core.js        # pure math + constants + immutable point ops
+    │   ├── automation-api.js         # AutomationCore facade — stable public API
+    │   ├── automation-serializer.js  # rounded (6 dp) JSON round-trip, validates both ways
     │   └── automation-validator.js   # normalization & repair of untrusted/disk data
     ├── ui/
     │   ├── automation-lane.js        # lane renderer on the timeline canvas
@@ -79,10 +80,19 @@ the scheduler drives AudioParams independently of the render loop, and the same
 scheduling code runs in the realtime context and the offline exporter, so playback
 and bounce always agree.
 
+**`AutomationCore`** (from `automation-api.js`) is the stable public surface:
+`normalizeAutomation(points, type)`, `getAutomationValueAtTime({points,time,baseValue,type})`,
+`serializeAutomation` / `deserializeAutomation` (6-decimal rounding, accepts object/string/garbage),
+immutable `addAutomationPoint` / `updateAutomationPoint` / `removeAutomationPoint`,
+`migrateTrack` for legacy projects, plus `AUTOMATION_TYPES` / `INTERPOLATION_TYPES` /
+`VALUE_RANGES` constants. Volume is expressed in dB (−∞…+12 per spec); the dB→gain
+mapping happens in the audio scheduler, which also prefers `cancelAndHoldAtTime`
+for click-free curve takeover.
+
 ## Tests
 
 ```bash
-node src/tests/automation.test.js   # interpolation, validator repairs, serialization, undo/redo
+node src/tests/automation.test.js   # 28 assertions: interpolation, validator, serializer, facade, undo/redo
 ```
 
 ## Not yet (honest roadmap)

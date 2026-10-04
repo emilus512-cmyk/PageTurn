@@ -10,6 +10,7 @@ const { serializeAutomation, deserializeAutomation } = require("../core/automati
 const {
   normalizePoint, normalizePoints, normalizeAutomation, ensureTrackAutomation, repairTrackAutomation,
 } = require("../core/automation-validator.js");
+const AutomationCore = require("../core/automation-api.js");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -190,6 +191,78 @@ test("repairTrackAutomation deep-repairs data loaded from disk", () => {
   approx(track.automation.volume[0].value, AUTO_RANGES.volume.max);
   assert.strictEqual(track.autoLane.param, "volume");
   assert.strictEqual(track.autoLane.shown, true); // hiding/showing never touches data
+});
+
+console.log("\nAUTOMATIONCORE FACADE (public API)");
+
+test("initializeAutomation / AUTOMATION_TYPES / VALUE_RANGES are exposed", () => {
+  assert.deepStrictEqual(AutomationCore.initializeAutomation(), emptyAutomation());
+  assert.strictEqual(AutomationCore.AUTOMATION_TYPES.VOLUME, "volume");
+  assert.strictEqual(AutomationCore.INTERPOLATION_TYPES.STEP, "step");
+  assert.strictEqual(AutomationCore.VALUE_RANGES.volume.max, 12);
+  assert.strictEqual(AutomationCore.VALUE_RANGES.mute.interpolation, "step");
+});
+
+test("addAutomationPoint is immutable: clamps, sorts, never mutates input", () => {
+  const a0 = AutomationCore.initializeAutomation();
+  const a1 = AutomationCore.addAutomationPoint(a0, "volume", 5, 99);
+  const a2 = AutomationCore.addAutomationPoint(a1, "volume", 1, -99);
+  assert.strictEqual(a0.volume.length, 0);              // input untouched
+  assert.strictEqual(a1.volume.length, 1);
+  assert.deepStrictEqual(a2.volume.map(p => p.time), [1, 5]); // sorted
+  approx(a2.volume[0].value, AUTO_RANGES.volume.min);   // clamped
+  approx(a2.volume[1].value, AUTO_RANGES.volume.max);
+  assert.ok(a2.volume[0].id && a2.volume[0].id !== a2.volume[1].id);
+});
+
+test("updateAutomationPoint re-sorts and clamps; removeAutomationPoint filters by id", () => {
+  let a = AutomationCore.initializeAutomation();
+  a = AutomationCore.addAutomationPoint(a, "pan", 1, 0, "p1");
+  a = AutomationCore.addAutomationPoint(a, "pan", 2, 0.5, "p2");
+  const moved = AutomationCore.updateAutomationPoint(a, "pan", "p1", 10, -7);
+  assert.deepStrictEqual(moved.pan.map(p => p.id), ["p2", "p1"]); // re-sorted
+  approx(moved.pan[1].value, -1);                                 // clamped
+  assert.strictEqual(a.pan[0].id, "p1");                          // original untouched
+  const removed = AutomationCore.removeAutomationPoint(moved, "pan", "p2");
+  assert.deepStrictEqual(removed.pan.map(p => p.id), ["p1"]);
+});
+
+test("getAutomationValueAtTime derives interpolation from type", () => {
+  const pts = [{ id: "a", time: 0, value: 0 }, { id: "b", time: 10, value: 1 }];
+  approx(AutomationCore.getAutomationValueAtTime({ points: pts, time: 5, baseValue: 0, type: "pan" }), 0.5);
+  approx(AutomationCore.getAutomationValueAtTime({ points: pts, time: 5, baseValue: 0, type: "mute" }), 0); // step
+});
+
+test("serializeAutomation rounds to 6 decimals; deserialize accepts object, string and garbage", () => {
+  let a = AutomationCore.initializeAutomation();
+  a = AutomationCore.addAutomationPoint(a, "volume", 1 / 3, 1 / 7, "r");
+  const obj = AutomationCore.serializeAutomation(a);
+  approx(obj.volume[0].time, 0.333333, 1e-9);
+  approx(obj.volume[0].value, 0.142857, 1e-9);
+  assert.strictEqual(AutomationCore.serializeAutomation(null), null);
+  const viaObj = AutomationCore.deserializeAutomation(obj);
+  const viaStr = AutomationCore.deserializeAutomation(JSON.stringify(obj));
+  assert.deepStrictEqual(viaObj, viaStr);
+  assert.deepStrictEqual(AutomationCore.deserializeAutomation("}{"), emptyAutomation());
+});
+
+test("migrateTrack attaches automation to legacy tracks and repairs dirty data", () => {
+  const legacy = { gainDb: 0 };
+  AutomationCore.migrateTrack(legacy);
+  assert.deepStrictEqual(legacy.automation, emptyAutomation());
+  const dirty = { gainDb: 0, automation: { volume: [{ id: "x", time: -2, value: 999 }, null] } };
+  AutomationCore.migrateTrack(dirty);
+  assert.strictEqual(dirty.automation.volume.length, 1);
+  approx(dirty.automation.volume[0].time, 0);
+  approx(dirty.automation.volume[0].value, AUTO_RANGES.volume.max);
+});
+
+test("facade normalizeAutomation(points, type) cleans a single param array", () => {
+  const out = AutomationCore.normalizeAutomation(
+    [{ id: "b", time: 7, value: 5 }, { time: 1, value: -0.5 }, { time: NaN, value: 0 }], "pan");
+  assert.strictEqual(out.length, 2);
+  assert.ok(out[0].time <= out[1].time);
+  approx(out[1].value, 1); // clamped to pan max
 });
 
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");

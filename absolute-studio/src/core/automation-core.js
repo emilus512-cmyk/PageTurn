@@ -8,11 +8,15 @@
    ═══════════════════════════════════════════════════════════════════ */
 "use strict";
 
+const AUTOMATION_TYPES = { VOLUME: "volume", PAN: "pan", MUTE: "mute" };
+const INTERPOLATION_TYPES = { LINEAR: "linear", STEP: "step" };
+
 const AUTO_RANGES = {
-  volume: { min: -60, max: 12, step: false }, // dB; -60 treated as -inf
-  pan:    { min: -1,  max: 1,  step: false }, // L100 .. R100
-  mute:   { min: 0,   max: 1,  step: true  }, // 1 = muted
-  wetDry: { min: 0,   max: 1,  step: false }, // plugin wet/dry (model-ready)
+  // volume stays in dB (spec: -∞ … +12 dB); dB→gain mapping is the scheduler's job
+  volume: { min: -60, max: 12, step: false, base: 0,  interpolation: "linear", label: "+12 dB, 0 dB, -inf dB" },
+  pan:    { min: -1,  max: 1,  step: false, base: 0,  interpolation: "linear", label: "L100, C, R100" },
+  mute:   { min: 0,   max: 1,  step: true,  base: 0,  interpolation: "step",   label: "0 or 1" },
+  wetDry: { min: 0,   max: 1,  step: false, base: 1,  interpolation: "linear", label: "dry 0 … wet 1" },
 };
 
 function autoSort(points) {
@@ -66,9 +70,51 @@ function emptyAutomation() {
   return { volume: [], pan: [], mute: [], effects: {} };
 }
 
+/* object-arg convenience: interpolation mode derived from the param type */
+function getAutomationValueAtTime({ points, time, baseValue, type }) {
+  const r = AUTO_RANGES[type];
+  return autoValue(points, time, baseValue, !!(r && r.step));
+}
+
+function generatePointId() {
+  return "pt_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 11);
+}
+
+/* ── immutable point operations ──
+   Return a NEW automation object; the input is never mutated.
+   (The live editor uses in-place edits + undo snapshots for drag
+   performance; these are for programmatic/stateless flows.) */
+function addAutomationPoint(automation, type, time, value, id) {
+  const src = (automation && Array.isArray(automation[type])) ? automation[type] : [];
+  const next = src.map(p => ({ ...p }));
+  next.push({
+    id: id || generatePointId(),
+    time: Math.max(0, time),
+    value: autoClampValue(type, value),
+  });
+  autoSort(next);
+  return { ...automation, [type]: next };
+}
+
+function removeAutomationPoint(automation, type, pointId) {
+  const src = (automation && Array.isArray(automation[type])) ? automation[type] : [];
+  return { ...automation, [type]: src.filter(p => p.id !== pointId) };
+}
+
+function updateAutomationPoint(automation, type, pointId, newTime, newValue) {
+  const src = (automation && Array.isArray(automation[type])) ? automation[type] : [];
+  const next = src.map(p => (p.id === pointId
+    ? { ...p, time: Math.max(0, newTime), value: autoClampValue(type, newValue) }
+    : { ...p }));
+  autoSort(next);
+  return { ...automation, [type]: next };
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    AUTO_RANGES, autoSort, autoInsert, autoClampValue, autoValue, autoCurve,
-    emptyAutomation,
+    AUTOMATION_TYPES, INTERPOLATION_TYPES, AUTO_RANGES,
+    autoSort, autoInsert, autoClampValue, autoValue, autoCurve,
+    emptyAutomation, getAutomationValueAtTime, generatePointId,
+    addAutomationPoint, removeAutomationPoint, updateAutomationPoint,
   };
 }

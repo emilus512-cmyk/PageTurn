@@ -14,15 +14,30 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (validator) {
   "use strict";
 
+  /* 6 decimal places: sub-microsecond time precision, stable diffs,
+     no float noise accumulating across save/load cycles */
+  const r6 = (v) => Math.round(v * 1e6) / 1e6;
+  const roundPoints = (arr) => arr.map(p => ({ id: p.id, time: r6(p.time), value: r6(p.value) }));
+
+  /* normalized, rounded, plain-JSON automation object */
+  function toJSONObject(a) {
+    const n = validator.normalizeAutomation(a);
+    const out = { volume: roundPoints(n.volume), pan: roundPoints(n.pan), mute: roundPoints(n.mute), effects: {} };
+    for (const fxId of Object.keys(n.effects)) {
+      out.effects[fxId] = { wetDry: roundPoints(n.effects[fxId].wetDry) };
+    }
+    return out;
+  }
+
   function serializeAutomation(a) {
-    return JSON.stringify(validator.normalizeAutomation(a));
+    return JSON.stringify(toJSONObject(a));
   }
 
   function deserializeAutomation(s) {
     let parsed = null;
-    try { parsed = JSON.parse(s); } catch (e) { parsed = null; }
+    try { parsed = typeof s === "string" ? JSON.parse(s) : s; } catch (e) { parsed = null; }
     return validator.normalizeAutomation(parsed);
   }
 
-  return { serializeAutomation, deserializeAutomation };
+  return { toJSONObject, serializeAutomation, deserializeAutomation };
 });

@@ -19,6 +19,14 @@
   const dbToLin = (db) => Math.pow(10, db / 20);
   const volMap = (db) => (db <= -59.5 ? 0 : dbToLin(db)); // -60 dB → true silence
 
+  /* cancel pending curves without a value jump where the engine supports it */
+  function cancelParam(param) {
+    try {
+      if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(0);
+      else param.cancelScheduledValues(0);
+    } catch (e) { /* never block playback */ }
+  }
+
   /* nodes: { autoVol: GainNode, autoPan: StereoPannerNode, autoMute: GainNode } */
   function scheduleTrack(nodes, track, fromPos, when, end) {
     root.AutomationValidator.ensureTrackAutomation(track);
@@ -27,8 +35,8 @@
     const sched = (param, pts, base, step, map, lo, hi) => {
       if (!pts.length) return;
       const curve = autoCurve(pts, base, step, fromPos, dur, N, (v) => clampNum(map(v), lo, hi));
+      cancelParam(param);
       try {
-        param.cancelScheduledValues(0);
         param.setValueCurveAtTime(curve, when, dur);
       } catch (e) { /* never block playback */ }
     };
@@ -38,9 +46,7 @@
   }
 
   function cancelTrack(nodes) {
-    for (const p of [nodes.autoVol.gain, nodes.autoPan.pan, nodes.autoMute.gain]) {
-      try { p.cancelScheduledValues(0); } catch (e) {}
-    }
+    for (const p of [nodes.autoVol.gain, nodes.autoPan.pan, nodes.autoMute.gain]) cancelParam(p);
   }
 
   root.AutomationScheduler = { scheduleTrack, cancelTrack, volMap, CURVE_RATE };
