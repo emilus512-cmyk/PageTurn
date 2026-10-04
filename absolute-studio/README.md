@@ -65,9 +65,10 @@ absolute-studio/
     │   ├── automation-serializer.js  # rounded (6 dp) JSON round-trip, validates both ways
     │   └── automation-validator.js   # normalization & repair of untrusted/disk data
     ├── ui/
-    │   ├── automation-lane.js        # lane renderer on the timeline canvas
-    │   ├── automation-editor.js      # add/drag/delete points, axis lock, snap
-    │   └── automation-styles.css     # lane theme (CSS custom properties)
+    │   ├── automation-lane.js            # lane renderer on the timeline canvas
+    │   ├── automation-lane-controller.js # AutomationLane public API (toggle/type/active)
+    │   ├── automation-editor.js          # add/drag/delete points, axis lock, snap
+    │   └── automation-styles.css         # lane theme (CSS custom properties)
     ├── audio/
     │   └── automation-scheduler.js   # AudioParam curve scheduling (live + offline)
     └── tests/
@@ -89,10 +90,16 @@ immutable `addAutomationPoint` / `updateAutomationPoint` / `removeAutomationPoin
 mapping happens in the audio scheduler, which also prefers `cancelAndHoldAtTime`
 for click-free curve takeover.
 
+**`AutomationLane`** (on `window`, from `automation-lane-controller.js`) is the lane
+control surface: `toggleLane(trackId)`, `setActiveLaneType(type[, trackId])`, `render()`,
+`getActiveTrackId()`, `getActiveLaneType()`. It's DOM-free — lane state lives on the
+tracks themselves (`track.autoLane`), shared with the canvas renderer, so lanes stay
+pixel-aligned with clips under every zoom/scroll and multiple lanes can be open at once.
+
 ## Tests
 
 ```bash
-node src/tests/automation.test.js   # 28 assertions: interpolation, validator, serializer, facade, undo/redo
+node src/tests/automation.test.js   # 32 assertions: interpolation, validator, serializer, facade, lane controller, undo/redo
 ```
 
 ## Not yet (honest roadmap)

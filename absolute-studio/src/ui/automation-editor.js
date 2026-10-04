@@ -11,8 +11,8 @@
 (function (root) {
   "use strict";
 
-  /* env: { laneUI, headerW, autoPoints, pushUndo, applyTrackGains, reschedule,
-            invalidate, snapTime, xToTime, uid, toast, selectTrack, rebuildMixer } */
+    /* env: { laneUI, laneController, headerW, autoPoints, pushUndo, applyTrackGains,
+            reschedule, invalidate, snapTime, xToTime, uid, toast, selectTrack, rebuildMixer } */
   function create(env) {
     const laneUI = env.laneUI;
 
@@ -42,9 +42,9 @@
     function onPointerDown(hit, e, mx, my) {
       if (hit.zone === "autoBtn") {
         if (hit.btn.disabled) { env.toast("FX wet/dry: no effects on this track yet (model ready)"); return null; }
-        if (hit.btn.act === "close") hit.track.autoLane.shown = false;
-        else hit.track.autoLane.param = hit.btn.param;
-        env.invalidate();
+        // route through the public lane controller — one source of truth
+        if (hit.btn.act === "close") env.laneController.toggleLane(hit.track.id);
+        else env.laneController.setActiveLaneType(hit.btn.param, hit.track.id);
         return null;
       }
       if (hit.zone === "autoHeader") {

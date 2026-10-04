@@ -102,6 +102,13 @@
       g2.setLineDash([]);
       g2.lineWidth = 1;
 
+      // empty-state hint
+      if (!pts.length) {
+        g2.fillStyle = "rgba(255,255,255,0.16)";
+        g2.font = "10px monospace";
+        g2.fillText("click to add a point · drag to shape · dbl-click deletes · Shift locks axis · Alt = free", HEADER_W + 46, y0 + 13);
+      }
+
       // points
       for (const p of pts) {
         const x = env.timeToX(p.time);

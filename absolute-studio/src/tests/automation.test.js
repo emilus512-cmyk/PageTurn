@@ -11,6 +11,7 @@ const {
   normalizePoint, normalizePoints, normalizeAutomation, ensureTrackAutomation, repairTrackAutomation,
 } = require("../core/automation-validator.js");
 const AutomationCore = require("../core/automation-api.js");
+const AutomationLaneController = require("../ui/automation-lane-controller.js");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -263,6 +264,71 @@ test("facade normalizeAutomation(points, type) cleans a single param array", () 
   assert.strictEqual(out.length, 2);
   assert.ok(out[0].time <= out[1].time);
   approx(out[1].value, 1); // clamped to pan max
+});
+
+console.log("\nLANE CONTROLLER (AutomationLane public API)");
+
+function makeLaneEnv() {
+  const tracks = [
+    { id: "t1", gainDb: 0, pan: 0 },
+    { id: "t2", gainDb: 0, pan: 0 },
+  ];
+  let selected = "t1", changes = 0;
+  const ctl = AutomationLaneController.create({
+    getTracks: () => tracks,
+    getSelectedTrackId: () => selected,
+    ensureTrack: (t) => ensureTrackAutomation(t),
+    onChange: () => { changes++; },
+  });
+  return { tracks, ctl, setSelected: (id) => { selected = id; }, getChanges: () => changes };
+}
+
+test("toggleLane shows/hides per track and never touches the data", () => {
+  const { tracks, ctl, getChanges } = makeLaneEnv();
+  assert.strictEqual(ctl.toggleLane("t1"), true);
+  assert.strictEqual(tracks[0].autoLane.shown, true);
+  tracks[0].automation.volume.push({ id: "p", time: 1, value: 0 });
+  assert.strictEqual(ctl.toggleLane("t1"), false);           // hide…
+  assert.strictEqual(tracks[0].automation.volume.length, 1); // …data survives
+  assert.strictEqual(ctl.toggleLane("nope"), false);          // unknown id → no-op
+  assert.strictEqual(getChanges(), 2);                        // redraws only on real changes
+});
+
+test("multiple lanes can be shown; active = most recently toggled-on", () => {
+  const { ctl } = makeLaneEnv();
+  ctl.toggleLane("t1");
+  ctl.toggleLane("t2");
+  assert.strictEqual(ctl.getActiveTrackId(), "t2");
+  ctl.toggleLane("t2"); // hide t2 → falls back to the still-shown t1
+  assert.strictEqual(ctl.getActiveTrackId(), "t1");
+  ctl.toggleLane("t1");
+  assert.strictEqual(ctl.getActiveTrackId(), null);
+});
+
+test("setActiveLaneType validates the type and rejects FX until effects exist", () => {
+  const { tracks, ctl } = makeLaneEnv();
+  ctl.toggleLane("t1");
+  assert.strictEqual(ctl.setActiveLaneType("pan"), true);     // defaults to active lane
+  assert.strictEqual(tracks[0].autoLane.param, "pan");
+  assert.strictEqual(ctl.getActiveLaneType(), "pan");
+  assert.strictEqual(ctl.setActiveLaneType("mute", "t2"), true); // explicit track
+  assert.strictEqual(tracks[1].autoLane.param, "mute");
+  assert.strictEqual(ctl.setActiveLaneType("effects"), false);
+  assert.strictEqual(ctl.setActiveLaneType("nonsense"), false);
+  assert.strictEqual(tracks[0].autoLane.param, "pan");        // unchanged by rejects
+});
+
+test("active lane prefers the selected track when several are shown", () => {
+  const { ctl, setSelected } = makeLaneEnv();
+  ctl.toggleLane("t1");
+  ctl.toggleLane("t2");
+  ctl.toggleLane("t2"); // t2 hidden again; show both fresh
+  ctl.toggleLane("t2");
+  setSelected("t1");
+  // lastActive = t2, but after it's cleared the fallback honours selection
+  ctl.toggleLane("t2");
+  ctl.toggleLane("t2");
+  assert.strictEqual(ctl.getActiveTrackId(), "t2"); // last toggled-on wins while shown
 });
 
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");

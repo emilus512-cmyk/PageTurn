@@ -868,8 +868,16 @@ const laneUI = AutomationLaneUI.create({
   autoPoints, autoBase,
   getDrag: () => drag,
 });
+const laneController = AutomationLaneController.create({
+  getTracks: () => state.tracks,
+  getSelectedTrackId: () => view.selectedTrack,
+  ensureTrack: ensureAutoModel,
+  onChange: () => invalidate(),
+});
+window.AutomationLane = laneController; // public API: toggleLane / setActiveLaneType / render / getActive*
 const autoEditor = AutomationEditor.create({
   laneUI,
+  laneController,
   headerW: HEADER_W,
   autoPoints,
   pushUndo,
@@ -1861,11 +1869,9 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     const t = selTrack() || state.tracks[0];
     if (t) {
-      ensureAutoModel(t);
-      t.autoLane.shown = !t.autoLane.shown;
       view.selectedTrack = t.id;
-      invalidate();
-      toast("Automation lane " + (t.autoLane.shown ? "ON" : "OFF") + " — " + t.name + " (hiding keeps the data)");
+      const shown = laneController.toggleLane(t.id);
+      toast("Automation lane " + (shown ? "ON" : "OFF") + " — " + t.name + " (hiding keeps the data)");
     }
     return;
   }
