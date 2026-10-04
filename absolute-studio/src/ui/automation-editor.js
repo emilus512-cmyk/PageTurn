@@ -12,7 +12,8 @@
   "use strict";
 
     /* env: { laneUI, laneController, headerW, autoPoints, pushUndo, applyTrackGains,
-            reschedule, invalidate, snapTime, xToTime, uid, toast, selectTrack, rebuildMixer } */
+            reschedule, invalidate, snapTime, xToTime, timeToX, uid, toast,
+            selectTrack, rebuildMixer } */
   function create(env) {
     const laneUI = env.laneUI;
 
@@ -56,10 +57,10 @@
       if (hit.zone === "autoPoint") {
         env.selectTrack(hit.track.id);
         if (e.button === 2 || e.detail === 2) {
-          // delete point
+          // delete point (by id — robust against array replacement)
           env.pushUndo();
           const arr = env.autoPoints(hit.track, hit.param);
-          const i = arr.indexOf(hit.point);
+          const i = arr.findIndex(q => q.id === hit.point.id);
           if (i >= 0) arr.splice(i, 1);
           env.applyTrackGains();
           env.reschedule();
@@ -68,7 +69,8 @@
         }
         env.invalidate();
         return {
-          mode: "autoPoint", track: hit.track, param: hit.param, point: hit.point, L: hit.L,
+          mode: "autoPoint", track: hit.track, param: hit.param,
+          point: hit.point, pointId: hit.point.id, L: hit.L,
           undoPushed: false, lock: null, pressX: mx, pressY: my,
           orig: { time: hit.point.time, value: hit.point.value },
         };
@@ -77,14 +79,15 @@
         env.selectTrack(hit.track.id);
         if (e.button === 2) return null;
         // click on the line = add a point, then keep dragging it
-        env.pushUndo();
+        env.pushUndo(); // snapshot BEFORE the mutation — undo restores the pre-add state
         const time = e.altKey ? Math.max(0, env.xToTime(mx)) : env.snapTime(env.xToTime(mx));
         const value = laneUI.autoYToVal(hit.param, my, hit.L);
         const p = autoInsert(env.autoPoints(hit.track, hit.param), { id: env.uid(), time, value });
         env.applyTrackGains();
         env.invalidate();
         return {
-          mode: "autoPoint", track: hit.track, param: hit.param, point: p, L: hit.L,
+          mode: "autoPoint", track: hit.track, param: hit.param,
+          point: p, pointId: p.id, L: hit.L,
           undoPushed: true, lock: null, pressX: mx, pressY: my,
           orig: { time: p.time, value: p.value },
         };
@@ -93,6 +96,11 @@
     }
 
     function onPointerMove(drag, e, mx, my) {
+      // resolve the dragged point by id — survives array normalization/repair
+      const pts = env.autoPoints(drag.track, drag.param);
+      const p = pts.find(q => q.id === drag.pointId);
+      if (!p) return; // point vanished (undo during drag etc.) — drop the gesture safely
+      drag.point = p;
       if (!drag.undoPushed) { env.pushUndo(); drag.undoPushed = true; }
       let time = e.altKey ? Math.max(0, env.xToTime(mx)) : env.snapTime(env.xToTime(mx)); // Alt = snap off
       let value = laneUI.autoYToVal(drag.param, my, drag.L);
@@ -107,9 +115,9 @@
       } else {
         drag.lock = null;
       }
-      drag.point.time = time;
-      drag.point.value = value;
-      autoSort(env.autoPoints(drag.track, drag.param));
+      p.time = time;
+      p.value = value;
+      autoSort(pts);
       env.applyTrackGains();
       env.invalidate();
     }
@@ -122,4 +130,5 @@
   }
 
   root.AutomationEditor = { create };
+  if (typeof module !== "undefined" && module.exports) module.exports = { create };
 })(typeof globalThis !== "undefined" ? globalThis : this);

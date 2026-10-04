@@ -13,6 +13,14 @@
   const clampNum = (v, a, b) => Math.min(b, Math.max(a, v));
 
   function readTheme() {
+    // Node/worker-safe: fall back to defaults when there's no DOM
+    if (typeof getComputedStyle !== "function" || typeof document === "undefined") {
+      return {
+        bg: "#0b0d11", grid: "#1a1a20", zero: "#2b2b33", label: "#4a4a54",
+        header: "#0f1016", border: "#232329", btnBg: "#1b1b20",
+        btnBorder: "#2e2e36", btnText: "#76767e", btnDisabled: "#3a3a42",
+      };
+    }
     const cs = getComputedStyle(document.documentElement);
     const v = (name, fb) => (cs.getPropertyValue(name) || "").trim() || fb;
     return {
@@ -114,7 +122,7 @@
         const x = env.timeToX(p.time);
         if (x < HEADER_W - 5 || x > cw + 5) continue;
         const y = autoValToY(param, p.value, L);
-        const hot = drag && drag.mode === "autoPoint" && drag.point === p;
+        const hot = drag && drag.mode === "autoPoint" && drag.pointId === p.id;
         g2.beginPath();
         g2.arc(x, y, hot ? 5 : 3.5, 0, Math.PI * 2);
         g2.fillStyle = hot ? "#fff" : t.color;
@@ -155,4 +163,5 @@
   }
 
   root.AutomationLaneUI = { create };
+  if (typeof module !== "undefined" && module.exports) module.exports = { create };
 })(typeof globalThis !== "undefined" ? globalThis : this);

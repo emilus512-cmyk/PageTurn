@@ -886,6 +886,7 @@ const autoEditor = AutomationEditor.create({
   invalidate,
   snapTime: (t) => snapTime(t),
   xToTime: (x) => xToTime(x),
+  timeToX: (t) => timeToX(t),
   uid, toast,
   selectTrack: (id) => { view.selectedTrack = id; },
   rebuildMixer: () => rebuildMixer(),

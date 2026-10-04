@@ -99,7 +99,7 @@ pixel-aligned with clips under every zoom/scroll and multiple lanes can be open 
 ## Tests
 
 ```bash
-node src/tests/automation.test.js   # 32 assertions: interpolation, validator, serializer, facade, lane controller, undo/redo
+node src/tests/automation.test.js   # 38 assertions: interpolation, validator, serializer, facade, lane controller, headless editor, undo/redo
 ```
 
 ## Not yet (honest roadmap)

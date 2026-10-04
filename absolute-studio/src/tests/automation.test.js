@@ -12,6 +12,10 @@ const {
 } = require("../core/automation-validator.js");
 const AutomationCore = require("../core/automation-api.js");
 const AutomationLaneController = require("../ui/automation-lane-controller.js");
+// lane/editor are browser namespaces resolving core helpers via the global object
+Object.assign(globalThis, require("../core/automation-core.js"));
+const AutomationLaneUI = require("../ui/automation-lane.js");
+const AutomationEditor = require("../ui/automation-editor.js");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -329,6 +333,97 @@ test("active lane prefers the selected track when several are shown", () => {
   ctl.toggleLane("t2");
   ctl.toggleLane("t2");
   assert.strictEqual(ctl.getActiveTrackId(), "t2"); // last toggled-on wins while shown
+});
+
+console.log("\nEDITOR INTERACTIONS (headless: add / drag / delete / axis lock / snap)");
+
+/* harness: 10 px/sec timeline, 1 s snap grid, lane box at y 100..158 */
+function makeEditor() {
+  const track = { id: "t1", gainDb: 0, pan: 0, autoLane: { shown: true, param: "volume" } };
+  ensureTrackAutomation(track);
+  const L = { track, autoY: 100, autoH: 58 };
+  const log = { undo: [], gains: 0, resched: 0 };
+  let uidN = 0;
+  const laneUI = AutomationLaneUI.create({
+    getG2: () => null, getCw: () => 800, headerW: 172,
+    timeToX: (t) => 172 + t * 10, xToTime: (x) => (x - 172) / 10,
+    autoPoints: (t, p) => t.automation[p], autoBase: () => 0, getDrag: () => null,
+  });
+  const ed = AutomationEditor.create({
+    laneUI, headerW: 172,
+    laneController: { toggleLane() {}, setActiveLaneType() {} },
+    autoPoints: (t, p) => t.automation[p],
+    pushUndo: () => log.undo.push(JSON.stringify(track.automation.volume)),
+    applyTrackGains: () => log.gains++,
+    reschedule: () => log.resched++,
+    invalidate() {}, toast() {}, selectTrack() {}, rebuildMixer() {},
+    snapTime: (t) => Math.max(0, Math.round(t)),          // 1 s grid
+    xToTime: (x) => (x - 172) / 10,
+    timeToX: (t) => 172 + t * 10,
+    uid: () => "u" + (++uidN),
+  });
+  const ev = (o = {}) => ({ button: 0, detail: 1, altKey: false, shiftKey: false, ...o });
+  return { track, L, ed, laneUI, log, ev };
+}
+
+test("click on empty lane adds a snapped point — undo snapshot taken BEFORE the mutation", () => {
+  const { track, L, ed, log, ev } = makeEditor();
+  const hit = ed.hitTest(172 + 53, 129, L);                // x→5.3 s, mid-height
+  assert.strictEqual(hit.zone, "autoLane");
+  const drag = ed.onPointerDown(hit, ev(), 172 + 53, 129);
+  assert.strictEqual(track.automation.volume.length, 1);
+  approx(track.automation.volume[0].time, 5);              // snapped to grid
+  assert.strictEqual(drag.pointId, track.automation.volume[0].id);
+  assert.strictEqual(JSON.parse(log.undo[0]).length, 0);   // snapshot = pre-add state
+});
+
+test("Alt bypasses snap when adding", () => {
+  const { track, L, ed, ev } = makeEditor();
+  ed.onPointerDown(ed.hitTest(172 + 53, 129, L), ev({ altKey: true }), 172 + 53, 129);
+  approx(track.automation.volume[0].time, 5.3, 1e-9);
+});
+
+test("drag resolves the point BY ID — survives array replacement mid-drag", () => {
+  const { track, L, ed, ev } = makeEditor();
+  const drag = ed.onPointerDown(ed.hitTest(172 + 50, 129, L), ev(), 172 + 50, 129);
+  // simulate a deep repair swapping array + point objects (same ids)
+  track.automation.volume = track.automation.volume.map(p => ({ ...p }));
+  ed.onPointerMove(drag, ev(), 172 + 80, 110);
+  approx(track.automation.volume[0].time, 8);              // moved via fresh object
+  assert.strictEqual(drag.point, track.automation.volume[0]); // re-bound reference
+});
+
+test("Shift locks the dominant axis during drag", () => {
+  const { track, L, ed, ev } = makeEditor();
+  const drag = ed.onPointerDown(ed.hitTest(172 + 50, 129, L), ev(), 172 + 50, 129);
+  const v0 = track.automation.volume[0].value;
+  ed.onPointerMove(drag, ev({ shiftKey: true }), 172 + 90, 131); // mostly horizontal
+  assert.strictEqual(drag.lock, "x");
+  approx(track.automation.volume[0].time, 9);
+  approx(track.automation.volume[0].value, v0);            // value frozen on x-lock
+});
+
+test("vanished point (undo during drag) drops the gesture without throwing", () => {
+  const { track, L, ed, ev } = makeEditor();
+  const drag = ed.onPointerDown(ed.hitTest(172 + 50, 129, L), ev(), 172 + 50, 129);
+  track.automation.volume.length = 0;                      // point gone
+  ed.onPointerMove(drag, ev(), 172 + 90, 110);             // must not throw
+  assert.strictEqual(track.automation.volume.length, 0);
+});
+
+test("double-click and right-click delete the point and reschedule playback", () => {
+  const { track, L, ed, log, ev } = makeEditor();
+  ed.onPointerDown(ed.hitTest(172 + 50, 129, L), ev(), 172 + 50, 129);
+  let hit = ed.hitTest(172 + 50, 129, L);
+  assert.strictEqual(hit.zone, "autoPoint");
+  assert.strictEqual(ed.onPointerDown(hit, ev({ detail: 2 }), 172 + 50, 129), null);
+  assert.strictEqual(track.automation.volume.length, 0);
+  assert.ok(log.resched >= 1);
+  // right-click path on a fresh point
+  ed.onPointerDown(ed.hitTest(172 + 30, 129, L), ev(), 172 + 30, 129);
+  hit = ed.hitTest(172 + 30, 129, L);
+  ed.onPointerDown(hit, ev({ button: 2 }), 172 + 30, 129);
+  assert.strictEqual(track.automation.volume.length, 0);
 });
 
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");
