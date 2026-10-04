@@ -1,1 +1,40 @@
+name: CI
 
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  automation-tests:
+    name: ABSOLUTE STUDIO X — automation suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check (all JS modules)
+        working-directory: absolute-studio
+        run: |
+          for f in app.js src/core/*.js src/audio/*.js src/ui/*.js src/tests/*.js; do
+            node --check "$f"
+          done
+
+      - name: Browser load-order smoke (shared global scope via vm)
+        working-directory: absolute-studio
+        run: |
+          node -e "
+          const fs=require('fs'),vm=require('vm');
+          const ctx=vm.createContext({ console, getComputedStyle:()=>({getPropertyValue:()=>''}), document:{documentElement:{}}, window:{} });
+          const files=['src/core/automation-core.js','src/core/automation-validator.js','src/core/automation-serializer.js','src/core/automation-api.js','src/audio/automation-scheduler.js','src/ui/automation-lane.js','src/ui/automation-lane-controller.js','src/ui/automation-editor.js'];
+          for (const f of files) vm.runInContext(fs.readFileSync(f,'utf8'), ctx, {filename:f});
+          vm.runInContext('if(!AutomationCore||!AutomationScheduler||!AutomationLaneUI||!AutomationEditor||!AutomationLaneController) throw new Error(\"namespace missing\")', ctx);
+          console.log('browser load-order OK');
+          "
+
+      - name: Automation tests
+        working-directory: absolute-studio
+        run: node src/tests/automation.test.js

@@ -536,6 +536,58 @@ test("lastAutomationTime scans every track and param", () => {
   approx(AutomationScheduler.lastAutomationTime([]), 0);
 });
 
+console.log("\nCOMPAT (port of the proposed suite — AutomationCore facade)");
+
+test("compat: normalizeAutomation sorts unsorted points by time", () => {
+  const normalized = AutomationCore.normalizeAutomation([
+    { id: "3", time: 5, value: 0.3 },
+    { id: "1", time: 1, value: 0.5 },
+    { id: "2", time: 3, value: 0.7 },
+  ], "pan");
+  assert.deepStrictEqual(normalized.map(p => p.time), [1, 3, 5]);
+  assert.deepStrictEqual(normalized.map(p => p.id), ["1", "2", "3"]);
+});
+
+test("compat: corrupted points (NaN time, Infinity value) are dropped, survivors kept", () => {
+  const normalized = AutomationCore.normalizeAutomation([
+    { id: "1", time: NaN, value: 0.5 },
+    { id: "2", time: 1, value: Infinity },
+    { id: "3", time: 2, value: 0.7 },
+  ], "pan");
+  assert.strictEqual(normalized.length, 1);
+  approx(normalized[0].time, 2);
+});
+
+test("compat: volume clamp uses the dB model (-60…+12), not 0..1", () => {
+  // the proposed suite expected clamp to [0, 1] — that encodes the rejected
+  // 0..1 volume model; the spec'd MVP range is -inf…+12 dB
+  const normalized = AutomationCore.normalizeAutomation([
+    { id: "1", time: 0, value: -100 },
+    { id: "2", time: 1, value: 100 },
+  ], "volume");
+  approx(normalized[0].value, -60);  // -inf floor (true silence in the scheduler)
+  approx(normalized[1].value, 12);   // +12 dB ceiling
+});
+
+test("compat: serializeAutomation returns a plain object preserving points", () => {
+  const serialized = AutomationCore.serializeAutomation({
+    volume: [{ id: "1", time: 1.5, value: 0.8 }], pan: [], mute: [], effects: {},
+  });
+  assert.strictEqual(serialized.volume.length, 1);
+  approx(serialized.volume[0].time, 1.5);
+  assert.strictEqual(typeof serialized, "object");
+  assert.strictEqual(AutomationCore.deserializeAutomation(serialized).volume[0].time, 1.5);
+});
+
+test("compat: pan interpolates L100 → C → R100", () => {
+  const points = [
+    { id: "1", time: 0, value: -1 },
+    { id: "2", time: 2, value: 1 },
+  ];
+  approx(AutomationCore.getAutomationValueAtTime({ points, time: 1, baseValue: 0, type: "pan" }), 0);
+  approx(AutomationCore.getAutomationValueAtTime({ points, time: 0.5, baseValue: 0, type: "pan" }), -0.5);
+});
+
 console.log("\nUNDO / REDO (same snapshot mechanism as the app)");
 
 /* mirror of app.js: JSON snapshots on a bounded stack */
